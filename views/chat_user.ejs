@@ -1,0 +1,1342 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat with <%= receiver %></title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://hammerjs.github.io https://unpkg.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' ws://localhost:3000 wss://yourdomain.com; media-src 'self';">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#6B46C1">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/chat.css">
+  <script src="https://hammerjs.github.io/dist/hammer.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div id="soundPrompt" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; display: none; align-items: center; justify-content: center;">
+    <button onclick="enableSound()" style="padding: 10px 20px; font-size: 16px; background: #D4A017; color: white; border: none; border-radius: 5px; cursor: pointer;">
+      Enable Sound
+    </button>
+  </div>
+
+  <div class="chat-container">
+    <!-- Top Bar -->
+    <div class="top-bar chat-top-bar">
+      <div class="chat-icons">
+        <button class="call-btn back-btn" onclick="window.location.href='/chat'">←</button>
+        <button class="call-btn" onclick="startCall('voice')">📞</button>
+        <button class="call-btn" onclick="startCall('video')">📹</button>
+      </div>
+      <div class="status-container">
+        <span class="chat-username"><%= receiver %></span>
+        <span id="statusText" class="partner-status">Last seen recently</span>
+      </div>
+      <img src="<%= receiverDp || '/images/dummy.jpg' %>" class="chat-dp" alt="DP" onclick="openDpPopup()">
+    </div>
+
+    <!-- Typing Indicator -->
+    <div id="typingIndicatorAboveMessages" style="display: none;">
+      Typing...
+    </div>
+
+    <!-- Chat Messages -->
+    <div class="chat-messages" id="messages"></div>
+
+    <!-- Edit Mode Preview -->
+    <div id="editPreview">
+      Editing message... <button class="cancel-btn" onclick="cancelEdit()">✖</button>
+    </div>
+
+    <!-- Reply Mode Preview -->
+    <div id="replyPreview" style="display:none;" class="reply-preview">
+      <button class="cancel-btn" onclick="clearReply()">✖</button>
+    </div>
+
+    <!-- Image/Video Preview -->
+    <div id="imagePreviewText"></div>
+
+    <!-- Message Input Area -->
+    <div class="message-input">
+      <button class="emoji-btn" onclick="toggleEmojiPopup()">😊</button>
+      <button class="sticker-btn" onclick="openStickerPopup()">🎨</button>
+      <input type="text" id="messageInput" placeholder="Type a message...">
+      <div class="input-icons">
+        <input type="file" id="imageInput" accept="image/*,video/*" style="display:none;">
+        <label for="imageInput">📷</label>
+        <button id="sendButton" class="send-btn" disabled>➤</button>
+      </div>
+    </div>
+
+    <!-- Emoji Popup -->
+    <div id="emojiPopup">
+      <div style="display: flex; justify-content: space-around; margin-bottom: 10px;">
+        <button class="emoji-category" onclick="showEmojis('happy')">Happy</button>
+        <button class="emoji-category" onclick="showEmojis('sad')">Sad</button>
+        <button class="emoji-category" onclick="showEmojis('angry')">Angry</button>
+        <button class="emoji-category" onclick="showEmojis('excited')">Excited</button>
+        <button class="emoji-category" onclick="showEmojis('surprised')">Surprised</button>
+      </div>
+      <div id="emojiList" class="emoji-list"></div>
+    </div>
+
+    <!-- Sticker Popup -->
+    <div id="stickerPopup" style="display: none; position: fixed; bottom: 60px; left: 0; right: 0; background: var(--background); border-top: 1px solid var(--accent); z-index: 12; padding: 10px; max-height: 300px; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h3 style="color: var(--bubble-text); font-size: 16px;">Stickers (<span id="stickerCount">0</span>)</h3>
+        <button onclick="closeStickerPopup()" style="background: none; border: none; color: var(--bubble-text); font-size: 20px; cursor: pointer;">✖</button>
+      </div>
+      <button onclick="document.getElementById('stickerInput').click()" style="background: var(--accent); color: white; border: none; padding: 5px 10px; border-radius: 5px; margin-bottom: 10px; cursor: pointer;">
+        Add Sticker
+      </button>
+      <input type="file" id="stickerInput" accept="image/*,video/mp4" style="display: none;" onchange="addSticker(event)">
+      <div id="stickerList" style="display: flex; flex-wrap: wrap; gap: 15px;"></div>
+    </div>
+
+    <!-- Profile Picture Popup -->
+    <div id="dpPopup">
+      <button id="closeDpBtn" onclick="closeDpPopup()">✖</button>
+      <img id="dpFullScreen" src="" alt="Full Screen DP">
+    </div>
+
+    <!-- Call Modal -->
+    <div id="callModal">
+      <div id="callStatus">Connecting...</div>
+      <video id="remoteVideo" autoplay playsinline style="display:none;"></video>
+      <video id="localVideo" autoplay playsinline muted style="display:none;"></video>
+      <div id="callButtons">
+        <button id="acceptBtn" style="display:none;" onclick="acceptCall()">Accept</button>
+        <button id="rejectBtn" style="display:none;" onclick="rejectCall()">Reject</button>
+        <button id="hangUpBtn" style="display:none;" onclick="hangUp()">Hang Up</button>
+      </div>
+    </div>
+
+    <!-- Video Popup -->
+    <div id="videoPopup" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2000; flex-direction: column; align-items: center; justify-content: center;">
+      <button onclick="closeVideoPopup()" style="position: absolute; top: 10px; right: 10px; background: none; border: none; color: white; font-size: 20px; cursor: pointer;">✖</button>
+      <video id="videoPlayer" style="max-width: 90%; max-height: 70%; border-radius: 10px;" controls></video>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
+  <script>
+    // Service Worker Registration
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js')
+      .then(reg => console.log('✅ Service Worker registered'))
+      .catch(err => console.error('❌ Service Worker failed:', err));
+    }
+
+    // Prevent Chrome context menu on long press
+    document.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.message')) {
+        e.preventDefault();
+      }
+    });
+
+    // Sound Handling
+    function checkSoundEnabled() {
+      return localStorage.getItem('soundEnabled') === 'true';
+    }
+
+    function setSoundEnabled() {
+      localStorage.setItem('soundEnabled', 'true');
+    }
+
+    function requestNotificationPermission() {
+      if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            console.log('Notification permission granted');
+            subscribeToPush();
+          } else {
+            console.log('Notification permission denied');
+            alert('Notifications are disabled. Enable them in browser settings.');
+          }
+        }).catch(err => {
+          console.error('Error requesting notification permission:', err);
+          alert('Failed to request notification permission.');
+        });
+      }
+    }
+
+    function subscribeToPush() {
+      if (!navigator.serviceWorker || !navigator.serviceWorker.ready) {
+        console.warn('Service Worker not ready for push subscription');
+        return;
+      }
+
+      navigator.serviceWorker.ready.then(registration => {
+        fetch('/vapidPublicKey')
+          .then(response => {
+            if (!response.ok) throw new Error('Failed to fetch VAPID public key');
+            return response.text();
+          })
+          .then(vapidPublicKey => {
+            registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: vapidPublicKey
+            }).then(subscription => {
+              fetch('/subscribe', {
+                method: 'POST',
+                body: JSON.stringify(subscription),
+                headers: { 'Content-Type': 'application/json' }
+              }).then(response => {
+                if (!response.ok) throw new Error('Failed to subscribe');
+                console.log('Subscribed to push notifications');
+              }).catch(err => console.error('Subscription error:', err));
+            }).catch(err => {
+              console.error('Push subscription error:', err);
+              alert('Push notifications not supported or blocked.');
+            });
+          }).catch(err => console.error('Error fetching VAPID key:', err));
+      }).catch(err => console.error('Service Worker error:', err));
+    }
+
+    function playNotificationSound() {
+      const audio = new Audio('/sounds/notification.mp3');
+      audio.play().catch(err => {
+        console.error('Error playing sound:', err);
+        document.addEventListener('click', function playOnInteraction() {
+          audio.play().catch(e => console.error('Fallback sound error:', e));
+          document.removeEventListener('click', playOnInteraction);
+        }, { once: true });
+      });
+    }
+
+    function enableSound() {
+      const audio = new Audio('/sounds/notification.mp3');
+      audio.play().catch(err => console.error('Error enabling sound:', err));
+      setSoundEnabled();
+      document.getElementById('soundPrompt').style.display = 'none';
+    }
+
+    // Remove auto-scroll on page load
+    window.addEventListener('load', () => {
+      requestNotificationPermission();
+      if (!checkSoundEnabled()) {
+        document.getElementById('soundPrompt').style.display = 'flex';
+      }
+      requestAnimationFrame(() => {
+        adjustBarsPosition();
+      });
+    });
+
+    // Socket.IO Initialization with Retry Logic
+    let socket;
+    function connectSocket() {
+      try {
+        // Dynamically set Socket.IO URL based on environment
+        const socketUrl = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'wss://yourdomain.com';
+
+        socket = io(socketUrl, {
+          transports: ['websocket', 'polling'],
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000
+        });
+
+        socket.on('connect', () => {
+          console.log('✅ Connected to Socket.IO server');
+        });
+
+        socket.on('connect_error', (error) => {
+          console.error('Socket.IO connection error:', error);
+          alert('Unable to connect to server. Please check your network or server status.');
+        });
+
+        socket.on('disconnect', (reason) => {
+          console.warn('Socket.IO disconnected:', reason);
+          if (reason === 'io server disconnect') {
+            socket.connect();
+          }
+        });
+
+      } catch (e) {
+        console.error('Failed to initialize Socket.IO:', e);
+        alert('Unable to connect to server. Please check your network or server status.');
+      }
+    }
+
+    connectSocket();
+
+    // DOM Elements
+    const messagesDiv = document.getElementById('messages');
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('sendButton');
+    const imageInput = document.getElementById('imageInput');
+    const imagePreviewText = document.getElementById('imagePreviewText');
+    const statusText = document.getElementById('statusText');
+    const replyPreview = document.getElementById('replyPreview');
+    const editPreview = document.getElementById('editPreview');
+    const callModal = document.getElementById('callModal');
+    const callStatus = document.getElementById('callStatus');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const localVideo = document.getElementById('localVideo');
+    const acceptBtn = document.getElementById('acceptBtn');
+    const rejectBtn = document.getElementById('rejectBtn');
+    const hangUpBtn = document.getElementById('hangUpBtn');
+    const dpPopup = document.getElementById('dpPopup');
+    const dpFullScreen = document.getElementById('dpFullScreen');
+    const typingIndicatorAboveMessages = document.getElementById('typingIndicatorAboveMessages');
+    const emojiPopup = document.getElementById('emojiPopup');
+    const emojiList = document.getElementById('emojiList');
+    const stickerPopup = document.getElementById('stickerPopup');
+    const stickerCount = document.getElementById('stickerCount');
+    const stickerList = document.getElementById('stickerList');
+
+    // Variables
+    let selectedImageData = null;
+    let replyToContent = null;
+    let replyToMessageId = null;
+    let replyToMessageType = null;
+    let editingMessageId = null;
+    let peer = null;
+    let localStream = null;
+    let callType = null;
+    let caller = null;
+    let isEmojiPopupOpen = false;
+    let lastViewportHeight = window.innerHeight;
+    const sender = "<%= sender %>";
+    const receiver = "<%= receiver %>";
+    const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+    const MAX_VIDEO_SIZE = 20 * 1024 * 1024; // 20MB
+
+    // Emoji Categories
+    const emojiCategories = {
+      happy: ['😊', '😄', '😃', '😆', '😺'],
+      sad: ['😢', '😔', '😞', '😣', '😿'],
+      angry: ['😣', '😣', '😣', '😣', '😣'],
+      excited: ['🎉', '😎', '😍', '🤩', '🥳'],
+      surprised: ['😲', '😯', '😳', '😮', '🙀']
+    };
+
+    // Scroll to Last Message
+    function scrollToLastMessage() {
+      if (messagesDiv) {
+        const viewport = window.visualViewport || { height: window.innerHeight, offsetTop: 0 };
+        const topBarHeight = 60;
+        const messageInputHeight = 60;
+        const fixedGap = 10;
+        const messageBubbleGap = 8;
+        const lastThreeMessagesBuffer = 24;
+
+        let additionalHeight = 0;
+        if (editPreview && editPreview.style.display !== 'none') {
+          additionalHeight += editPreview.offsetHeight || 40;
+        }
+        if (replyPreview && replyPreview.style.display !== 'none') {
+          additionalHeight += replyPreview.offsetHeight || 40;
+        }
+        if (imagePreviewText && imagePreviewText.style.display !== 'none') {
+          additionalHeight += imagePreviewText.offsetHeight || 40;
+        }
+        if (emojiPopup && emojiPopup.classList.contains('active')) {
+          additionalHeight += emojiPopup.offsetHeight || 300;
+        }
+        if (stickerPopup && stickerPopup.style.display !== 'none') {
+          additionalHeight += stickerPopup.offsetHeight || 300;
+        }
+
+        const keyboardHeight = Math.max(0, window.innerHeight - viewport.height);
+        const visibleHeight = viewport.height - topBarHeight - fixedGap - messageInputHeight - additionalHeight - keyboardHeight;
+        const scrollPosition = messagesDiv.scrollHeight - visibleHeight + lastThreeMessagesBuffer;
+
+        messagesDiv.scrollTop = Math.max(0, scrollPosition);
+      }
+    }
+
+    // Adjust Bars Position
+    function adjustBarsPosition() {
+      const viewport = window.visualViewport || { height: window.innerHeight, offsetTop: 0 };
+      const keyboardHeight = Math.max(0, window.innerHeight - viewport.height);
+      const isKeyboardOpen = keyboardHeight > 100;
+
+      const topBarHeight = 60;
+      const messageInputHeight = 60;
+      const fixedGap = 10;
+      const messageBubbleGap = 8;
+
+      let additionalHeight = 0;
+      if (editPreview && editPreview.style.display !== 'none') {
+        additionalHeight += editPreview.offsetHeight || 40;
+      }
+      if (replyPreview && replyPreview.style.display !== 'none') {
+        additionalHeight += replyPreview.offsetHeight || 40;
+      }
+      if (imagePreviewText && imagePreviewText.style.display !== 'none') {
+        additionalHeight += imagePreviewText.offsetHeight || 40;
+      }
+      if (emojiPopup && emojiPopup.classList.contains('active')) {
+        additionalHeight += emojiPopup.offsetHeight || 300;
+      }
+      if (stickerPopup && stickerPopup.style.display !== 'none') {
+        additionalHeight += stickerPopup.offsetHeight || 300;
+      }
+
+      if (messageInput) {
+        messageInput.style.bottom = isKeyboardOpen ? `${keyboardHeight}px` : '0px';
+      }
+
+      let currentOffset = messageInputHeight + (isKeyboardOpen ? keyboardHeight : 0);
+      if (editPreview) {
+        editPreview.style.bottom = `${currentOffset}px`;
+        currentOffset += editPreview.style.display !== 'none' ? (editPreview.offsetHeight || 40) : 0;
+      }
+      if (replyPreview) {
+        replyPreview.style.bottom = `${currentOffset}px`;
+        currentOffset += replyPreview.style.display !== 'none' ? (editPreview.offsetHeight || 40) : 0;
+      }
+      if (imagePreviewText) {
+        imagePreviewText.style.bottom = `${currentOffset}px`;
+        currentOffset += imagePreviewText.style.display !== 'none' ? (imagePreviewText.offsetHeight || 40) : 0;
+      }
+      if (emojiPopup) {
+        emojiPopup.style.bottom = `${currentOffset}px`;
+        currentOffset += emojiPopup.classList.contains('active') ? (emojiPopup.offsetHeight || 300) : 0;
+      }
+      if (stickerPopup) {
+        stickerPopup.style.bottom = `${currentOffset}px`;
+        currentOffset += stickerPopup.style.display !== 'none' ? (stickerPopup.offsetHeight || 300) : 0;
+      }
+
+      if (messagesDiv) {
+        const totalPaddingBottom = messageInputHeight + additionalHeight + (isKeyboardOpen ? keyboardHeight : 0) + messageBubbleGap;
+        messagesDiv.style.paddingBottom = `${totalPaddingBottom}px`;
+        messagesDiv.style.paddingTop = `${fixedGap}px`;
+        messagesDiv.style.marginTop = `${topBarHeight}px`;
+      }
+
+      lastViewportHeight = viewport.height;
+    }
+
+    // Debounced Adjust Bars
+    let resizeTimeout;
+    function debouncedAdjustBars() {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        requestAnimationFrame(adjustBarsPosition);
+      }, 50);
+    }
+
+    // Event Listeners
+    window.visualViewport?.addEventListener('resize', debouncedAdjustBars);
+    window.visualViewport?.addEventListener('scroll', debouncedAdjustBars);
+    window.addEventListener('resize', debouncedAdjustBars);
+
+    if (messageInput) {
+      messageInput.addEventListener('focus', () => {
+        requestAnimationFrame(() => {
+          adjustBarsPosition();
+        });
+      });
+      messageInput.addEventListener('blur', () => {
+        requestAnimationFrame(() => {
+          adjustBarsPosition();
+        });
+      });
+    }
+
+    // Start Reply or Edit
+    function startReplyOrEdit() {
+      setTimeout(() => {
+        if (messageInput) {
+          messageInput.focus();
+          adjustBarsPosition();
+        }
+      }, 100);
+    }
+
+    // Emoji Popup Functions
+    function toggleEmojiPopup() {
+      if (isEmojiPopupOpen) {
+        closeEmojiPopup();
+      } else {
+        openEmojiPopup();
+      }
+    }
+
+    function openEmojiPopup() {
+      if (emojiPopup) {
+        emojiPopup.classList.add('active');
+        isEmojiPopupOpen = true;
+        showEmojis('happy');
+        adjustBarsPosition();
+      }
+    }
+
+    function closeEmojiPopup() {
+      if (emojiPopup) {
+        emojiPopup.style.animation = 'slideOut 0.3s ease-out';
+        setTimeout(() => {
+          emojiPopup.classList.remove('active');
+          emojiPopup.style.animation = 'slideIn 0.3s ease-out';
+          isEmojiPopupOpen = false;
+          if (emojiList) emojiList.innerHTML = '';
+          adjustBarsPosition();
+        }, 300);
+      }
+    }
+
+    function showEmojis(category) {
+      if (emojiList) {
+        emojiList.innerHTML = '';
+        const emojis = emojiCategories[category] || [];
+        emojis.forEach(emoji => {
+          const span = document.createElement('span');
+          span.classList.add('emoji');
+          span.textContent = emoji;
+          span.addEventListener('click', () => sendEmoji(emoji));
+          emojiList.appendChild(span);
+        });
+      }
+    }
+
+    function sendEmoji(emoji) {
+      socket.emit('chatMessage', { 
+        sender, 
+        receiver, 
+        message: emoji, 
+        replyTo: replyToContent, 
+        replyToType: replyToMessageType
+      });
+      addMessageBubble(null, emoji, 'sent', 'text', getCurrentTime(), false, replyToContent, replyToMessageType);
+      closeEmojiPopup();
+      clearReply();
+    }
+
+    // Profile Picture Popup Functions
+    function openDpPopup() {
+      if (dpFullScreen) {
+        dpFullScreen.src = "<%= receiverDp || '/images/dummy.jpg' %>";
+        dpPopup.classList.add('active');
+      }
+    }
+
+    function closeDpPopup() {
+      if (dpPopup) {
+        dpPopup.style.animation = 'fadeOut 0.3s ease';
+        setTimeout(() => {
+          dpPopup.classList.remove('active');
+          dpPopup.style.animation = 'fadeIn 0.3s ease';
+        }, 300);
+      }
+    }
+
+    // Sticker Popup Functions
+    function openStickerPopup() {
+      if (stickerPopup) {
+        stickerPopup.style.display = 'block';
+        loadStickers();
+        adjustBarsPosition();
+      }
+    }
+
+    function closeStickerPopup() {
+      if (stickerPopup) {
+        stickerPopup.style.display = 'none';
+        adjustBarsPosition();
+      }
+    }
+
+    function loadStickers() {
+      console.log('Fetching stickers from server');
+      fetch('/stickers?t=' + new Date().getTime())
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(stickers => {
+          console.log('Fetched stickers:', stickers);
+          if (stickerList && stickerCount) {
+            stickerList.innerHTML = '';
+            stickerCount.innerText = stickers.length;
+
+            if (stickers.length === 0) {
+              stickerList.innerHTML = '<p style="color: var(--bubble-text); font-size: 14px;">No stickers available. Add some!</p>';
+              return;
+            }
+
+            stickers.forEach(sticker => {
+              const stickerElement = document.createElement('div');
+              stickerElement.classList.add('sticker-container');
+              stickerElement.setAttribute('data-id', sticker._id);
+              stickerElement.innerHTML = `
+                ${sticker.type === 'image' ? `<img src="${sticker.url}" class="sticker" onerror="this.onerror=null; this.src='/images/dummy.jpg'; console.error('Failed to load image:', '${sticker.url}');">` : `<video src="${sticker.url}" class="sticker" autoplay loop muted onerror="console.error('Failed to load video:', '${sticker.url}');"></video>`}
+                <button class="delete-sticker-btn" onclick="deleteSticker('${sticker._id}')">✖</button>
+              `;
+              const stickerMedia = stickerElement.querySelector('.sticker');
+              if (stickerMedia) {
+                stickerMedia.addEventListener('click', () => sendSticker(sticker.url, sticker.type));
+              }
+              stickerList.appendChild(stickerElement);
+            });
+          }
+        })
+        .catch(error => {
+          console.error('Error loading stickers:', error);
+          alert('Failed to load stickers. Please try again.');
+        });
+    }
+
+    function addSticker(event) {
+      const file = event.target.files[0];
+      if (!file) {
+        console.log('No file selected');
+        alert('Please select a file to upload.');
+        return;
+      }
+
+      const maxSize = file.type.startsWith('video/') ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+      if (file.size > maxSize) {
+        alert(`File too large! Max size: ${maxSize / 1024 / 1024}MB`);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('sticker', file);
+      formData.append('uploader', sender);
+
+      console.log('Uploading sticker:', file.name);
+      fetch('/add-sticker', {
+        method: 'POST',
+        body: formData
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          console.log('Add sticker response:', data);
+          if (data.success) {
+            alert('Sticker added successfully!');
+            loadStickers();
+          } else {
+            alert('Error adding sticker: ' + (data.message || 'Unknown error'));
+          }
+        })
+        .catch(error => {
+          console.error('Error adding sticker:', error);
+          alert('Failed to add sticker. Please try again.');
+        });
+    }
+
+    function deleteSticker(stickerId) {
+      console.log('Deleting sticker with ID:', stickerId);
+      socket.emit('deleteSticker', { stickerId, sender, receiver });
+    }
+
+    function sendSticker(url, type) {
+      console.log('Sending sticker:', url, 'Type:', type);
+      socket.emit('sendSticker', { sender, receiver, url, type, replyTo: replyToContent, replyToType: replyToMessageType });
+      addMessageBubble(null, url, 'sent', `sticker-${type}`, getCurrentTime(), false, replyToContent, replyToMessageType);
+      closeStickerPopup();
+    }
+
+    // Video Popup Functions
+    function openVideoPopup(url) {
+      const videoPopup = document.getElementById('videoPopup');
+      const videoPlayer = document.getElementById('videoPlayer');
+      if (videoPopup && videoPlayer) {
+        videoPlayer.src = url;
+        videoPopup.style.display = 'flex';
+      }
+    }
+
+    function closeVideoPopup() {
+      const videoPopup = document.getElementById('videoPopup');
+      const videoPlayer = document.getElementById('videoPlayer');
+      if (videoPopup && videoPlayer) {
+        videoPlayer.pause();
+        videoPlayer.src = '';
+        videoPopup.style.display = 'none';
+      }
+    }
+
+    // Socket.IO Events
+    socket.emit('register', { username: sender });
+    socket.emit('joinChat', { sender, receiver });
+    socket.emit('seen', { sender, receiver });
+
+    socket.on('loadOldMessages', (messages) => {
+      messages.forEach(msg => {
+        const type = msg.sender === sender ? 'sent' : 'received';
+        addMessageBubble(msg.id, msg.content, type, msg.type, msg.time, msg.seen, msg.replyTo, msg.replyToType);
+      });
+      if (messagesDiv) {
+        const viewport = window.visualViewport || { height: window.innerHeight, offsetTop: 0 };
+        const topBarHeight = 60;
+        const messageInputHeight = 60;
+        const fixedGap = 10;
+        const messageBubbleGap = 8;
+        const lastThreeMessagesBuffer = 24;
+
+        let additionalHeight = 0;
+        if (editPreview && editPreview.style.display !== 'none') {
+          additionalHeight += editPreview.offsetHeight || 40;
+        }
+        if (replyPreview && replyPreview.style.display !== 'none') {
+          additionalHeight += replyPreview.offsetHeight || 40;
+        }
+        if (imagePreviewText && imagePreviewText.style.display !== 'none') {
+          additionalHeight += imagePreviewText.offsetHeight || 40;
+        }
+        if (emojiPopup && emojiPopup.classList.contains('active')) {
+          additionalHeight += emojiPopup.offsetHeight || 300;
+        }
+        if (stickerPopup && stickerPopup.style.display !== 'none') {
+          additionalHeight += stickerPopup.offsetHeight || 300;
+        }
+
+        const keyboardHeight = Math.max(0, window.innerHeight - viewport.height);
+        const visibleHeight = viewport.height - topBarHeight - fixedGap - messageInputHeight - additionalHeight - keyboardHeight;
+        const scrollPosition = messagesDiv.scrollHeight - visibleHeight + lastThreeMessagesBuffer;
+
+        messagesDiv.scrollTop = Math.max(0, scrollPosition);
+      }
+    });
+
+    if (messageInput) {
+      messageInput.addEventListener('input', () => {
+        if (messageInput.value.trim() !== '' || selectedImageData) {
+          sendButton.disabled = false;
+          socket.emit('typing', sender);
+        } else {
+          sendButton.disabled = true;
+        }
+      });
+    }
+
+    if (imageInput) {
+      imageInput.addEventListener('change', function() {
+        const file = this.files[0];
+        if (file) {
+          const maxSize = file.type.startsWith('video/') ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+          if (file.size > maxSize) {
+            alert(`File too large! Max size: ${maxSize / 1024 / 1024}MB`);
+            this.value = '';
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            selectedImageData = e.target.result;
+            imagePreviewText.innerText = file.type.startsWith('video/') ? '🎥 Video selected ✅' : '📷 Image selected ✅';
+            imagePreviewText.innerHTML += `<button class="cancel-btn" onclick="cancelImage()">✖</button>`;
+            imagePreviewText.style.display = 'block';
+            sendButton.disabled = false;
+            adjustBarsPosition();
+          };
+          reader.onerror = function() {
+            alert('Error reading file. Please try again.');
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+    }
+
+    function cancelImage() {
+      selectedImageData = null;
+      if (imagePreviewText) {
+        imagePreviewText.innerText = '';
+        imagePreviewText.style.display = 'none';
+      }
+      if (imageInput) imageInput.value = '';
+      sendButton.disabled = true;
+      adjustBarsPosition();
+    }
+
+    if (sendButton) {
+      sendButton.addEventListener('click', () => {
+        if (editingMessageId) {
+          const newText = messageInput.value.trim();
+          if (newText) {
+            socket.emit('editMessage', { messageId: editingMessageId, newContent: newText });
+          }
+          cancelEdit();
+        } else if (selectedImageData) {
+          const file = imageInput.files[0];
+          const type = file.type.startsWith('video/') ? 'video' : 'image';
+          socket.emit('sendImage', { 
+            sender, 
+            receiver, 
+            imageData: selectedImageData, 
+            replyTo: replyToContent, 
+            replyToType: replyToMessageType,
+            type 
+          });
+          addMessageBubble(null, selectedImageData, 'sent', type, getCurrentTime(), false, replyToContent, replyToMessageType);
+          cancelImage();
+        } else {
+          const message = messageInput.value.trim();
+          if (message) {
+            socket.emit('chatMessage', { 
+              sender, 
+              receiver, 
+              message, 
+              replyTo: replyToContent, 
+              replyToType: replyToMessageType
+            });
+            addMessageBubble(null, message, 'sent', 'text', getCurrentTime(), false, replyToContent, replyToMessageType);
+            messageInput.value = '';
+          }
+        }
+        clearReply();
+        sendButton.disabled = true;
+        scrollToLastMessage();
+      });
+    }
+
+    socket.on('messageSent', ({ _id }) => {
+      const bubbles = document.querySelectorAll('.message.sent');
+      const lastBubble = bubbles[bubbles.length - 1];
+      if (lastBubble) lastBubble.setAttribute('data-id', _id);
+    });
+
+    socket.on('newMessage', (data) => {
+      if (data.sender === receiver && data.receiver === sender) {
+        addMessageBubble(data._id, data.message, 'received', data.type, data.time, true, data.replyTo, data.replyToType);
+        socket.emit('seen', { sender, receiver });
+
+        typingIndicatorAboveMessages.style.display = 'none';
+        statusText.innerText = 'Online';
+
+        playNotificationSound();
+
+        if (Notification.permission === 'granted' && document.visibilityState === 'hidden') {
+          const notification = new Notification(`${data.sender}`, {
+            body: data.type === 'text' ? data.message : (data.type === 'video' || data.type === 'sticker-video' ? 'Sent a video' : 'Sent an image'),
+            icon: '/images/icon.png',
+            tag: 'message-notification',
+            renotify: true
+          });
+        }
+        scrollToLastMessage();
+      }
+    });
+
+    socket.on('seenUpdate', ({ sender: seenSender, receiver: seenReceiver }) => {
+      if (sender === seenReceiver && receiver === seenSender) {
+        const allSent = document.querySelectorAll('.message.sent .time');
+        if (allSent.length > 0) {
+          const lastTime = allSent[allSent.length - 1];
+          if (lastTime.innerHTML.includes('✔') && !lastTime.innerHTML.includes('✔✔')) {
+            lastTime.innerHTML = lastTime.innerHTML.replace('✔', '✔✔');
+          }
+        }
+      }
+    });
+
+    socket.on('messageEdited', ({ messageId, newContent }) => {
+      const bubble = document.querySelector(`.message[data-id="${messageId}"]`);
+      if (bubble) {
+        const contentDiv = bubble.querySelector('div:not(.time):not(.reply-preview)');
+        if (contentDiv) {
+          contentDiv.innerText = newContent + " (edited)";
+        }
+      }
+    });
+
+    socket.on('messageDeleted', ({ messageId }) => {
+      const bubble = document.querySelector(`.message[data-id="${messageId}"]`);
+      if (bubble) {
+        bubble.remove();
+        console.log(`Message ${messageId} removed from UI`);
+      }
+    });
+
+    socket.on('stickerDeleted', ({ stickerId }) => {
+      const stickerElement = document.querySelector(`.sticker-container[data-id="${stickerId}"]`);
+      if (stickerElement) {
+        stickerElement.remove();
+        console.log(`Sticker ${stickerId} removed from UI`);
+      }
+      if (stickerCount) {
+        const currentCount = parseInt(stickerCount.innerText) || 0;
+        stickerCount.innerText = Math.max(currentCount - 1, 0);
+      }
+    });
+
+    socket.on('refreshStickers', () => {
+      console.log('Refreshing sticker list');
+      if (stickerPopup && stickerPopup.style.display === 'block') {
+        loadStickers();
+      }
+    });
+
+    socket.on('error', ({ message }) => {
+      console.error('Server error:', message);
+      alert(message);
+    });
+
+    function addMessageBubble(id, content, typeBubble, messageType = 'text', time = getCurrentTime(), seen = false, replyTo = null, replyToType = null) {
+      const bubble = document.createElement('div');
+      bubble.classList.add('message', typeBubble);
+      if (messageType.startsWith('sticker-')) {
+        bubble.classList.add('sticker-message');
+      } else if (messageType === 'video') {
+        bubble.classList.add('video-bubble');
+      }
+      if (id) bubble.setAttribute('data-id', id);
+
+      let ticks = typeBubble === 'sent' ? (seen ? '✔✔' : '✔') : '';
+      let replyHtml = '';
+      if (replyTo) {
+        replyHtml = `<div class="reply-preview" data-message-id="${replyToMessageId || id}">${replyToType === 'text' ? `<span>${replyTo}</span>` : (replyToType === 'image' || replyToType === 'sticker-image' ? `<img src="${replyTo}" alt="Reply preview">` : `<video src="${replyTo}" muted></video>`)}</div>`;
+      }
+
+      let optionsHtml = `<div class="message-options"></div>`;
+
+      if (messageType === 'text') {
+        bubble.innerHTML = `${replyHtml}<div>${content}</div><div class="time">${time} ${ticks}</div>${optionsHtml}`;
+      } else if (messageType === 'image') {
+        bubble.innerHTML = `${replyHtml}<img src="${content}" style="max-width:160px; border-radius:10px;"><div class="time">${time} ${ticks}</div>${optionsHtml}`;
+      } else if (messageType === 'video') {
+        bubble.innerHTML = `${replyHtml}<video src="${content}" class="video-bubble"></video><div class="time">${time} ${ticks}</div>${optionsHtml}`;
+        const video = bubble.querySelector('video');
+        if (video) {
+          video.addEventListener('click', () => openVideoPopup(content));
+        }
+      } else if (messageType === 'sticker-image') {
+        bubble.innerHTML = `${replyHtml}<img src="${content}" class="sticker-message"><div class="time">${time} ${ticks}</div>${optionsHtml}`;
+      } else if (messageType === 'sticker-video') {
+        bubble.innerHTML = `${replyHtml}<video src="${content}" class="sticker-message" autoplay loop muted></video><div class="time">${time} ${ticks}</div>${optionsHtml}`;
+        const video = bubble.querySelector('video');
+        if (video) {
+          video.onloadedmetadata = () => video.play().catch(err => console.error('Video play error:', err));
+        }
+      }
+      messagesDiv.appendChild(bubble);
+      scrollToLastMessage();
+      adjustBarsPosition();
+
+      if (replyTo && bubble.querySelector('.reply-preview')) {
+        bubble.querySelector('.reply-preview').addEventListener('click', () => scrollToOriginalMessage(replyToMessageId || id));
+      }
+
+      const hammer = new Hammer(bubble);
+      hammer.get('swipe').set({ direction: Hammer.DIRECTION_LEFT });
+      hammer.on('swipeleft', () => {
+        bubble.classList.add('swiped');
+        setTimeout(() => bubble.classList.remove('swiped'), 300);
+        startReply(content, id, messageType);
+      });
+
+      hammer.on('doubletap', () => {
+        hideAllMessageOptions();
+        startReply(content, id, messageType);
+      });
+
+      hammer.on('press', () => {
+        if (typeBubble === 'sent') {
+          bubble.classList.add('pressed');
+          setTimeout(() => bubble.classList.remove('pressed'), 300);
+          hideAllMessageOptions();
+          const options = bubble.querySelector('.message-options');
+          if (options) {
+            options.classList.add('show');
+            options.innerHTML = `
+              <button class="edit-btn" onclick="startEdit(this)">Edit</button>
+              <button class="delete-btn" onclick="deleteMessage(this)">Delete</button>
+            `;
+          }
+        }
+      });
+
+      hammer.on('tap', (ev) => {
+        if (ev.tapCount === 3 && typeBubble === 'sent') {
+          hideAllMessageOptions();
+          const options = bubble.querySelector('.message-options');
+          if (options) {
+            options.classList.add('show');
+            options.innerHTML = `
+              <button class="edit-btn" onclick="startEdit(this)">Edit</button>
+              <button class="delete-btn" onclick="deleteMessage(this)">Delete</button>
+            `;
+          }
+        }
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!bubble.contains(e.target)) {
+          const options = bubble.querySelector('.message-options');
+          if (options) {
+            options.classList.remove('show');
+          }
+        }
+      });
+    }
+
+    function hideAllMessageOptions() {
+      document.querySelectorAll('.message-options').forEach(options => {
+        options.classList.remove('show');
+      });
+    }
+
+    function startReply(content, messageId, messageType) {
+      replyToContent = content;
+      replyToMessageId = messageId;
+      replyToMessageType = messageType;
+      if (replyPreview) {
+        replyPreview.style.display = 'block';
+        if (messageType === 'text') {
+          replyPreview.innerHTML = `<span>${content}</span><button class="cancel-btn" onclick="clearReply()">✖</button>`;
+        } else if (messageType === 'image' || messageType === 'sticker-image') {
+          replyPreview.innerHTML = `<img src="${content}" alt="Reply preview"><button class="cancel-btn" onclick="clearReply()">✖</button>`;
+        } else if (messageType === 'video' || messageType === 'sticker-video') {
+          replyPreview.innerHTML = `<video src="${content}" muted></video><button class="cancel-btn" onclick="clearReply()">✖</button>`;
+        }
+        replyPreview.setAttribute('data-message-id', messageId);
+        startReplyOrEdit();
+      }
+    }
+
+    function scrollToOriginalMessage(messageId) {
+      const originalMessage = document.querySelector(`.message[data-id="${messageId}"]`);
+      if (originalMessage) {
+        document.querySelectorAll('.message').forEach(msg => msg.classList.remove('highlighted'));
+        originalMessage.classList.add('highlighted');
+        originalMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    function startEdit(btn) {
+      const bubble = btn.closest('.message');
+      const text = bubble.querySelector('div:not(.time):not(.reply-preview)')?.innerText.replace(' (edited)', '') || '';
+      editingMessageId = bubble.getAttribute('data-id');
+      messageInput.value = text;
+      editPreview.style.display = 'block';
+      hideAllMessageOptions();
+      startReplyOrEdit();
+    }
+
+    function cancelEdit() {
+      editingMessageId = null;
+      messageInput.value = '';
+      editPreview.style.display = 'none';
+      adjustBarsPosition();
+    }
+
+    function deleteMessage(btn) {
+      const bubble = btn.closest('.message');
+      const messageId = bubble.getAttribute('data-id');
+      if (messageId) {
+        socket.emit('deleteMessage', { messageId, sender, receiver });
+      }
+      bubble.remove();
+      hideAllMessageOptions();
+    }
+
+    function clearReply() {
+      replyToContent = null;
+      replyToMessageId = null;
+      replyToMessageType = null;
+      if (replyPreview) {
+        replyPreview.style.display = 'none';
+        adjustBarsPosition();
+      }
+    }
+
+    function getCurrentTime() {
+      return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    socket.on('userOnline', (username) => {
+      if (username === receiver) {
+        statusText.innerText = 'Online';
+      }
+    });
+
+    socket.on('userOffline', ({ username, lastSeen }) => {
+      if (username === receiver) {
+        statusText.innerText = `Last seen at ${lastSeen}`;
+      }
+    });
+
+    socket.on('typing', (username) => {
+      if (username === receiver) {
+        typingIndicatorAboveMessages.style.display = 'block';
+        statusText.innerText = 'Typing...';
+        setTimeout(() => {
+          typingIndicatorAboveMessages.style.display = 'none';
+          socket.emit('checkOnline', receiver);
+        }, 3000);
+      }
+    });
+
+    socket.emit('checkOnlineStatus', receiver);
+
+    socket.on('userIsOnline', (username) => {
+      if (username === receiver) {
+        statusText.innerText = 'Online';
+      }
+    });
+
+    socket.on('userIsOffline', ({ username, lastSeen }) => {
+      if (username === receiver) {
+        statusText.innerText = `Last seen at ${lastSeen}`;
+      }
+    });
+
+    setInterval(() => socket.emit('checkOnline', receiver), 5000);
+
+    async function startCall(type) {
+      try {
+        callModal.classList.add('active');
+        callStatus.innerText = 'Requesting permissions...';
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('getUserMedia is not supported in this browser.');
+        }
+
+        const constraints = type === 'voice' ? { audio: true, video: false } : { audio: true, video: true };
+        console.log('Requesting media with constraints:', constraints);
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        if (videoDevices.length === 0 && type === 'video') {
+          throw new Error('No camera found on this device.');
+        }
+
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log('Media stream acquired:', localStream);
+        
+        if (type === 'video') {
+          localVideo.srcObject = localStream;
+          localVideo.style.display = 'block';
+          remoteVideo.style.display = 'block';
+        }
+
+        callStatus.innerText = 'Calling...';
+        hangUpBtn.style.display = 'block';
+        acceptBtn.style.display = 'none';
+        rejectBtn.style.display = 'none';
+        socket.emit('call', { sender, receiver, type });
+
+        peer = new SimplePeer({
+          initiator: true,
+          trickle: false,
+          stream: localStream,
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' },
+              { urls: 'stun:stun3.l.google.com:19302' },
+              { urls: 'stun:stun4.l.google.com:19302' }
+            ]
+          }
+        });
+
+        peer.on('signal', data => {
+          console.log('Signal generated:', data);
+          socket.emit('signal', { sender, receiver, data });
+        });
+
+        peer.on('stream', stream => {
+          console.log('Stream received:', stream);
+          remoteVideo.srcObject = stream;
+          callStatus.innerText = 'Connected';
+          hangUpBtn.style.display = 'block';
+          acceptBtn.style.display = 'none';
+          rejectBtn.style.display = 'none';
+        });
+
+        peer.on('connect', () => {
+          console.log('Peer connected successfully');
+        });
+
+        peer.on('error', err => {
+          console.error('Peer error:', err);
+          endCall();
+          alert('Call failed: ' + err.message);
+        });
+
+        peer.on('close', () => {
+          console.log('Peer connection closed');
+          endCall();
+        });
+
+      } catch (error) {
+        console.error('Error starting call:', error);
+        endCall();
+        if (error.name === 'NotAllowedError') {
+          alert(type === 'video' ? 
+            'Camera access denied. Please allow camera access in your browser settings.' : 
+            'Microphone access denied. Please allow microphone access in your browser settings.');
+        } else if (error.name === 'NotFoundError') {
+          alert('Camera or microphone not found. Please ensure your device has the required hardware.');
+        } else if (error.name === 'NotReadableError' || error.message.includes('in use')) {
+          alert('Camera or microphone is already in use. Please close other apps or tabs using them.');
+        } else {
+          alert('Error starting call: ' + error.message);
+        }
+      }
+    }
+
+    socket.on('call', ({ sender: incomingCaller, type }) => {
+      console.log('Received call from:', incomingCaller, 'Type:', type);
+      if (incomingCaller === receiver) {
+        callModal.classList.add('active');
+        callStatus.innerText = `Incoming ${type} call from ${incomingCaller}...`;
+        acceptBtn.style.display = 'block';
+        rejectBtn.style.display = 'block';
+        hangUpBtn.style.display = 'none';
+        callType = type;
+        caller = incomingCaller;
+      }
+    });
+
+    async function acceptCall() {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('getUserMedia is not supported in this browser.');
+        }
+
+        const constraints = callType === 'voice' ? { audio: true, video: false } : { audio: true, video: true };
+        console.log('Accepting call with constraints:', constraints);
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        if (videoDevices.length === 0 && callType === 'video') {
+          throw new Error('No camera found on this device.');
+        }
+
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log('Media stream acquired for incoming call:', localStream);
+
+        if (callType === 'video') {
+          localVideo.srcObject = localStream;
+          localVideo.style.display = 'block';
+          remoteVideo.style.display = 'block';
+        }
+
+        callStatus.innerText = 'Connecting...';
+        acceptBtn.style.display = 'none';
+        rejectBtn.style.display = 'none';
+        hangUpBtn.style.display = 'block';
+
+        peer = new SimplePeer({
+          initiator: false,
+          trickle: false,
+          stream: localStream,
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' },
+              { urls: 'stun:stun3.l.google.com:19302' },
+              { urls: 'stun:stun4.l.google.com:19302' }
+            ]
+          }
+        });
+
+        peer.on('signal', data => {
+          console.log('Signal generated for incoming call:', data);
+          socket.emit('signal', { sender, receiver: caller, data });
+        });
+
+        peer.on('stream', stream => {
+          console.log('Stream received:', stream);
+          remoteVideo.srcObject = stream;
+          callStatus.innerText = 'Connected';
+          hangUpBtn.style.display = 'block';
+          acceptBtn.style.display = 'none';
+          rejectBtn.style.display = 'none';
+        });
+
+        peer.on('connect', () => {
+          console.log('Peer connected successfully');
+        });
+
+        peer.on('error', err => {
+          console.error('Peer error:', err);
+          endCall();
+          alert('Call failed: ' + err.message);
+        });
+
+        peer.on('close', () => {
+          console.log('Peer connection closed');
+          endCall();
+        });
+
+        socket.emit('acceptCall', { sender, receiver: caller });
+      } catch (error) {
+        console.error('Error accepting call:', error);
+        endCall();
+        if (error.name === 'NotAllowedError') {
+          alert(callType === 'video' ? 
+            'Camera access denied. Please allow camera access in your browser settings.' : 
+            'Microphone access denied. Please allow microphone access in your browser settings.');
+        } else if (error.name === 'NotFoundError') {
+          alert('Camera or microphone not found. Please ensure your device has the required hardware.');
+        } else if (error.name === 'NotReadableError' || error.message.includes('in use')) {
+          alert('Camera or microphone is already in use. Please close other apps or tabs using them.');
+        } else {
+          alert('Error accepting call: ' + error.message);
+        }
+      }
+    }
+
+    function rejectCall() {
+      socket.emit('endCall', { sender, receiver: caller });
+      endCall();
+    }
+
+    socket.on('acceptCall', ({ sender: accepter }) => {
+      console.log('Call accepted by:', accepter);
+      if (accepter === receiver) {
+        callStatus.innerText = 'Connecting...';
+        hangUpBtn.style.display = 'block';
+        acceptBtn.style.display = 'none';
+        rejectBtn.style.display = 'none';
+      }
+    });
+
+    socket.on('signal', ({ sender: signalSender, data }) => {
+      console.log('Received signal from:', signalSender, 'Data:', data);
+      if (signalSender === receiver && peer) {
+        peer.signal(data);
+      }
+    });
+
+    socket.on('endCall', ({ sender: ender }) => {
+      console.log('Call ended by:', ender);
+      if (ender === receiver) {
+        endCall();
+      }
+    });
+
+    function hangUp() {
+      socket.emit('endCall', { sender, receiver });
+      endCall();
+    }
+
+    function endCall() {
+      if (peer) {
+        peer.destroy();
+        peer = null;
+      }
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+      }
+      callModal.classList.remove('active');
+      callStatus.innerText = 'Connecting...';
+      localVideo.srcObject = null;
+      remoteVideo.srcObject = null;
+      localVideo.style.display = 'none';
+      remoteVideo.style.display = 'none';
+      acceptBtn.style.display = 'none';
+      rejectBtn.style.display = 'none';
+      hangUpBtn.style.display = 'none';
+      callType = null;
+      caller = null;
+    }
+  </script>
+</body>
+</html>
+```
